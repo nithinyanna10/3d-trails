@@ -270,7 +270,6 @@ cd frontend
 npm run build
 ```
 
-The built files will be in `frontend/dist/`.
 
 ## License
 
