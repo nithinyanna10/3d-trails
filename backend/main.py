@@ -117,28 +117,61 @@ def normalize_3d(coords: np.ndarray, target_range: tuple = (-5, 5)) -> np.ndarra
     return coords
 
 def reduce_to_3d(embeddings: np.ndarray) -> np.ndarray:
-    """Reduce embeddings to 3D using UMAP or PCA"""
-    if embeddings.shape[0] < 2:
-        # Too few points, return zeros
-        return np.zeros((embeddings.shape[0], 3))
+    """Reduce embeddings to 3D using UMAP or PCA with deterministic seed"""
+    n_samples, n_features = embeddings.shape
     
-    if HAS_UMAP and embeddings.shape[0] >= 4:
+    if n_samples < 2:
+        # Too few points, return zeros
+        return np.zeros((n_samples, 3))
+    
+    # Determine max components we can reduce to
+    max_components = min(n_samples, n_features, 3)
+    
+    if HAS_UMAP and n_samples >= 4:
         try:
-            reducer = umap.UMAP(n_components=3, random_state=42, n_neighbors=min(3, embeddings.shape[0] - 1))
+            # Deterministic layout: fixed random_state for stability
+            reducer = umap.UMAP(
+                n_components=3, 
+                random_state=42, 
+                n_neighbors=min(3, n_samples - 1),
+                min_dist=0.1,  # Better separation
+                spread=1.0     # Better global structure
+            )
             coords_3d = reducer.fit_transform(embeddings)
-        except:
-            # Fallback to PCA
-            reducer = PCA(n_components=min(3, embeddings.shape[1]))
-            coords_3d = reducer.fit_transform(embeddings)
+        except Exception as e:
+            # Fallback to PCA with deterministic seed
+            reducer = PCA(n_components=max_components, random_state=42)
+            coords_reduced = reducer.fit_transform(embeddings)
+            # Pad to 3D if needed
+            if coords_reduced.shape[1] < 3:
+                padding = np.zeros((coords_reduced.shape[0], 3 - coords_reduced.shape[1]))
+                coords_3d = np.hstack([coords_reduced, padding])
+            else:
+                coords_3d = coords_reduced
     else:
-        # Use PCA
-        reducer = PCA(n_components=min(3, embeddings.shape[1]))
-        coords_3d = reducer.fit_transform(embeddings)
+        # Use PCA with deterministic seed
+        reducer = PCA(n_components=max_components, random_state=42)
+        coords_reduced = reducer.fit_transform(embeddings)
+        # Pad to 3D if needed
+        if coords_reduced.shape[1] < 3:
+            padding = np.zeros((coords_reduced.shape[0], 3 - coords_reduced.shape[1]))
+            coords_3d = np.hstack([coords_reduced, padding])
+        else:
+            coords_3d = coords_reduced
     
     return coords_3d
 
+def apply_temporal_smoothing(coords: np.ndarray, alpha: float = 0.7, beta: float = 0.2, gamma: float = 0.1) -> np.ndarray:
+    """Apply temporal smoothing to 3D coordinates for smoother trails"""
+    if coords.shape[0] < 3:
+        return coords
+    smoothed_coords = np.copy(coords)
+    for i in range(2, coords.shape[0]):
+        smoothed_coords[i] = alpha * coords[i] + beta * coords[i-1] + gamma * coords[i-2]
+    return smoothed_coords
+
 def compute_clusters(embeddings: np.ndarray, n_points: int) -> np.ndarray:
-    """Compute cluster labels using KMeans"""
+    """Compute cluster labels using KMeans on original embeddings (best practice)"""
     if n_points < 2:
         return np.zeros(n_points, dtype=int)
     
@@ -146,12 +179,13 @@ def compute_clusters(embeddings: np.ndarray, n_points: int) -> np.ndarray:
     if k > n_points:
         k = n_points
     
+    # Cluster on original embeddings (not 3D) for better semantic grouping
     kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
     labels = kmeans.fit_predict(embeddings)
     return labels
 
 def compute_anchors(embeddings: np.ndarray, coords_3d: np.ndarray, labels: np.ndarray, fragments: List[str]) -> List[Anchor]:
-    """Compute anchor points (cluster centroids)"""
+    """Compute anchor points using medoids (real points) instead of centroids"""
     unique_labels = np.unique(labels)
     anchors = []
     
@@ -159,25 +193,48 @@ def compute_anchors(embeddings: np.ndarray, coords_3d: np.ndarray, labels: np.nd
         mask = labels == label
         cluster_embeddings = embeddings[mask]
         cluster_coords = coords_3d[mask]
+        cluster_fragments = [fragments[i] for i in range(len(fragments)) if mask[i]]
         
-        # Use centroid in 3D space
-        centroid_3d = cluster_coords.mean(axis=0)
-        
-        # Find representative fragment (closest to centroid in embedding space)
+        # Use medoid (real point) instead of centroid for better semantic grounding
+        # Find point closest to cluster center in embedding space
         centroid_embedding = cluster_embeddings.mean(axis=0)
         distances = np.linalg.norm(cluster_embeddings - centroid_embedding, axis=1)
-        rep_idx = np.argmin(distances)
-        rep_fragment = [fragments[i] for i in range(len(fragments)) if mask[i]][rep_idx]
+        medoid_idx = np.argmin(distances)
+        
+        # Get the 3D position of the medoid
+        medoid_3d = cluster_coords[medoid_idx]
+        rep_fragment = cluster_fragments[medoid_idx]
+        
+        # Extract keywords from cluster fragments for label
+        keywords = extract_keywords(cluster_fragments)
+        label_text = keywords if keywords else rep_fragment[:30]
         
         anchors.append(Anchor(
-            x=float(centroid_3d[0]),
-            y=float(centroid_3d[1]),
-            z=float(centroid_3d[2]),
-            label=rep_fragment[:30] + "..." if len(rep_fragment) > 30 else rep_fragment,
+            x=float(medoid_3d[0]),
+            y=float(medoid_3d[1]),
+            z=float(medoid_3d[2]),
+            label=label_text + ("..." if len(label_text) > 30 else ""),
             cluster=int(label)
         ))
     
     return anchors
+
+def extract_keywords(fragments: List[str], top_n: int = 3) -> str:
+    """Extract top keywords from fragments using simple frequency"""
+    from collections import Counter
+    import re
+    
+    # Simple word frequency (can be upgraded to TF-IDF)
+    words = []
+    for frag in fragments:
+        # Get last few words from each fragment
+        words.extend(frag.split()[-3:])
+    
+    # Count and get top words
+    word_counts = Counter(word.lower() for word in words if len(word) > 3)
+    top_words = [word for word, _ in word_counts.most_common(top_n)]
+    
+    return " / ".join(top_words) if top_words else ""
 
 @app.post("/embed", response_model=EmbedResponse)
 async def embed_text(request: EmbedRequest):
@@ -212,6 +269,9 @@ async def embed_text(request: EmbedRequest):
     # Reduce to 3D
     coords_3d = reduce_to_3d(embeddings)
     coords_3d = normalize_3d(coords_3d)
+    
+    # Level 1: Temporal smoothing for continuity
+    coords_3d = apply_temporal_smoothing(coords_3d)
     
     # Compute sentiment for each fragment
     sentiments = [compute_sentiment(frag) for frag in fragments]
