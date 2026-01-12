@@ -18,18 +18,43 @@ function easeInOutCubic(t: number): number {
 }
 
 // Resample curve by arc-length for smooth motion
-function resampleByArcLength(curve: THREE.CatmullRomCurve3, targetSegments: number): THREE.Vector3[] {
-  const totalLength = curve.getLength();
-  const segmentLength = totalLength / targetSegments;
-  const points: THREE.Vector3[] = [];
-  
-  for (let i = 0; i <= targetSegments; i++) {
-    const distance = i * segmentLength;
-    const t = curve.getUtoTmapping(0, distance / totalLength);
-    points.push(curve.getPoint(t));
+function resampleByArcLength(curve: THREE.CatmullRomCurve3 | null, targetSegments: number): THREE.Vector3[] {
+  if (!curve) {
+    return [];
   }
   
-  return points;
+  try {
+    const totalLength = curve.getLength();
+    if (totalLength === 0 || !isFinite(totalLength)) {
+      // Fallback: just get points from curve
+      return curve.getPoints(targetSegments);
+    }
+    
+    const segmentLength = totalLength / targetSegments;
+    const points: THREE.Vector3[] = [];
+    
+    for (let i = 0; i <= targetSegments; i++) {
+      const distance = i * segmentLength;
+      const t = curve.getUtoTmapping(0, distance / totalLength);
+      const point = curve.getPoint(t);
+      
+      // Safety check: ensure point is valid
+      if (point && typeof point.x === 'number' && typeof point.y === 'number' && typeof point.z === 'number') {
+        points.push(point);
+      }
+    }
+    
+    return points.length > 0 ? points : curve.getPoints(targetSegments);
+  } catch (error) {
+    console.error('Error in resampleByArcLength:', error);
+    // Fallback: just get points from curve
+    try {
+      return curve.getPoints(targetSegments);
+    } catch (fallbackError) {
+      console.error('Fallback also failed:', fallbackError);
+      return [];
+    }
+  }
 }
 
 export default function Trail({ points, animationProgress, revealIndex, speed, showAnchorLabels }: TrailProps) {
@@ -115,8 +140,30 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
       positions.unshift(startControl);
     }
     
-    // Create smooth curve
-    const curve = new THREE.CatmullRomCurve3(positions, false, "centripetal", 0.5);
+    // Create smooth curve - ensure we have valid positions
+    if (positions.length < 2) {
+      return {
+        curve: null,
+        colors: [],
+        visibleFraction: easedProgress,
+        visiblePoints: visiblePoints,
+        smoothedPositions: [],
+      };
+    }
+    
+    let curve: THREE.CatmullRomCurve3 | null = null;
+    try {
+      curve = new THREE.CatmullRomCurve3(positions, false, "centripetal", 0.5);
+    } catch (error) {
+      console.error('Error creating curve:', error);
+      return {
+        curve: null,
+        colors: [],
+        visibleFraction: easedProgress,
+        visiblePoints: visiblePoints,
+        smoothedPositions: [],
+      };
+    }
     
     // Resample by arc-length for smooth, constant-speed motion
     const targetSegments = Math.max(300, positions.length * 40);
@@ -139,10 +186,25 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
     
     try {
       // Use ALL points, not just visible ones - this ensures the trail is always complete
-      const positions = points.map((p) => new THREE.Vector3(p.x, p.y, p.z));
-      if (positions.length < 2) return null;
+      // Filter out invalid points first
+      const validPoints = points.filter(p => 
+        p && 
+        typeof p.x === 'number' && 
+        typeof p.y === 'number' && 
+        typeof p.z === 'number' &&
+        isFinite(p.x) && 
+        isFinite(p.y) && 
+        isFinite(p.z)
+      );
       
-      console.log('Trail: Creating curve with', positions.length, 'points');
+      if (validPoints.length < 2) {
+        console.log('Trail: Not enough valid points for curve', validPoints.length);
+        return null;
+      }
+      
+      const positions = validPoints.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+      
+      console.log('Trail: Creating curve with', positions.length, 'valid points');
       return new THREE.CatmullRomCurve3(positions, false, 'centripetal', 0.5);
     } catch (err) {
       console.error('Error creating trailCurve:', err);
@@ -201,46 +263,7 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
   
   // Not using tube colors anymore - using simple line like MiniDemo
   
-  if (points.length === 0) {
-    return null;
-  }
-  
-  if (points.length === 1) {
-    const point = points[0];
-    const nClusters = Math.max(1, new Set(points.map((p) => p.cluster)).size);
-    const color = getColor(point.sentiment, point.cluster, nClusters);
-    
-    return (
-      <mesh position={[point.x, point.y, point.z]}>
-        <sphereGeometry args={[0.3, 16, 16]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={0.8}
-        />
-      </mesh>
-    );
-  }
-  
-  // Premium glowing ribbon trail
-  const latestPoint = points.length > 0 ? points[Math.min(visiblePoints - 1, points.length - 1)] : null;
-  const nClusters = Math.max(1, new Set(points.map((p) => p.cluster)).size);
-  
-  // Early return if not enough points
-  if (!points || points.length < 2) {
-    console.log('Trail: Not enough points to render', points?.length);
-    return null;
-  }
-  
-  // Render trail - EXACT same approach as MiniDemo (simple line)
-  if (!lineGeometry) {
-    console.log('Trail: No lineGeometry, cannot render');
-    return null;
-  }
-  
-  console.log('Trail: ✅ Rendering line with', points.length, 'total points');
-  
-  // Calculate positions along the trail for word labels - SHOW ALL WORDS, not just visible ones
+  // Calculate positions along the trail for word labels - MUST BE BEFORE ANY EARLY RETURNS (Rules of Hooks)
   const labelPositions = useMemo(() => {
     if (!points || points.length < 2) {
       console.log('Trail: No points for labels');
@@ -257,9 +280,15 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
     for (let i = 0; i < numLabels; i++) {
       const point = points[i];
       
+      // Safety check: skip if point is undefined or missing coordinates
+      if (!point || typeof point.x !== 'number' || typeof point.y !== 'number' || typeof point.z !== 'number') {
+        console.warn(`Trail: Skipping invalid point at index ${i}`, point);
+        continue;
+      }
+      
       // Extract word from the point
-      const words = point.text_fragment.trim().split(/\s+/);
-      let displayWord = point.text_fragment;
+      const words = (point.text_fragment || '').trim().split(/\s+/);
+      let displayWord = point.text_fragment || '';
       if (words.length > 1) {
         displayWord = words[words.length - 1]; // Last word
       }
@@ -286,6 +315,45 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
     return labels;
   }, [points]); // Remove visiblePoints dependency - show all labels
   
+  // Premium glowing ribbon trail
+  const latestPoint = points.length > 0 ? points[Math.min(visiblePoints - 1, points.length - 1)] : null;
+  const nClusters = Math.max(1, new Set(points.map((p) => p.cluster)).size);
+  
+  // Early returns AFTER all hooks
+  if (points.length === 0) {
+    return null;
+  }
+  
+  if (points.length === 1) {
+    const point = points[0];
+    const color = getColor(point.sentiment, point.cluster, nClusters);
+    
+    return (
+      <mesh position={[point.x, point.y, point.z]}>
+        <sphereGeometry args={[0.3, 16, 16]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={0.8}
+        />
+      </mesh>
+    );
+  }
+  
+  // Early return if not enough points
+  if (!points || points.length < 2) {
+    console.log('Trail: Not enough points to render', points?.length);
+    return null;
+  }
+  
+  // Render trail - EXACT same approach as MiniDemo (simple line)
+  if (!lineGeometry) {
+    console.log('Trail: No lineGeometry, cannot render');
+    return null;
+  }
+  
+  console.log('Trail: ✅ Rendering line with', points.length, 'total points');
+  
   return (
     <group ref={groupRef}>
       {/* Simple line - EXACT same as MiniDemo working version - thin lines */}
@@ -303,9 +371,12 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
         <>
           {labelPositions.map((label, idx) => {
             const point = points[label.index];
-            if (!point) return null;
+            if (!point || !label.position) return null;
             
-            console.log(`Rendering label ${idx}: "${label.word}" at`, label.position);
+            // Safety check for position coordinates
+            if (typeof label.position.x !== 'number' || typeof label.position.y !== 'number' || typeof label.position.z !== 'number') {
+              return null;
+            }
             
             return (
               <Text
