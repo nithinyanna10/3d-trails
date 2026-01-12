@@ -43,3 +43,19 @@ export async function embedText(
   return response.json();
 }
 
+export async function processAudioFile(file: File): Promise<{ text: string; success: boolean }> {
+  const formData = new FormData();
+  formData.append("audio_file", file);
+
+  const response = await fetch("http://localhost:8000/process-audio", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
