@@ -39,11 +39,11 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
   
   // Use revealIndex if provided and valid, otherwise use animationProgress
-  // Ensure at least 1 point is visible
+  // Ensure at least 2 points are visible for trail to render
   const effectiveRevealIndex = points.length > 0 
     ? (revealIndex > 0 && revealIndex <= points.length 
-        ? Math.max(1, revealIndex) 
-        : Math.max(1, Math.ceil(points.length * animationProgress)))
+        ? Math.max(2, revealIndex) 
+        : Math.max(2, Math.ceil(points.length * animationProgress)))
     : 0;
   const effectiveProgress = points.length > 0 
     ? effectiveRevealIndex / points.length 
@@ -129,88 +129,77 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
     return { curve, colors, visibleFraction: easedProgress, visiblePoints, smoothedPositions };
   }, [points, effectiveProgress]);
   
-  // Premium glowing ribbon (thinner tube with glow pass)
-  const tubeGeometry = useMemo(() => {
-    if (!curve || points.length < 2) return null;
-    
-    const segments = Math.max(300, points.length * 40);
-    const radius = 0.15; // Visible thickness
-    const radialSegments = 16;
-    
-    return new THREE.TubeGeometry(curve, segments, radius, radialSegments, false);
-  }, [curve, points.length]);
-  
-  // Simple line geometry connecting points directly (backup/visible trail)
-  const lineGeometry = useMemo(() => {
-    if (points.length < 2 || visiblePoints < 2) return null;
-    
-    const positions = new Float32Array(visiblePoints * 3);
-    for (let i = 0; i < visiblePoints; i++) {
-      const point = points[i];
-      positions[i * 3] = point.x;
-      positions[i * 3 + 1] = point.y;
-      positions[i * 3 + 2] = point.z;
+  // Use the SAME approach as MiniDemo - simple and reliable
+  // Create curve from visible points - ALWAYS use ALL points for complete trail
+  const trailCurve = useMemo(() => {
+    if (!points || points.length < 2) {
+      console.log('Trail: Not enough points for curve', points?.length);
+      return null;
     }
     
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    return geometry;
-  }, [points, visiblePoints]);
+    try {
+      // Use ALL points, not just visible ones - this ensures the trail is always complete
+      const positions = points.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+      if (positions.length < 2) return null;
+      
+      console.log('Trail: Creating curve with', positions.length, 'points');
+      return new THREE.CatmullRomCurve3(positions, false, 'centripetal', 0.5);
+    } catch (err) {
+      console.error('Error creating trailCurve:', err);
+      return null;
+    }
+  }, [points]);
   
-  // Thick line using tube for visibility (WebGL doesn't support linewidth)
-  const thickLineCurve = useMemo(() => {
-    if (points.length < 2 || visiblePoints < 2) return null;
+  // Create line geometry exactly like MiniDemo
+  const lineGeometry = useMemo(() => {
+    if (!trailCurve) {
+      console.log('Trail: No trailCurve, cannot create lineGeometry');
+      return null;
+    }
     
-    const positions = points.slice(0, visiblePoints).map((p) => new THREE.Vector3(p.x, p.y, p.z));
-    if (positions.length < 2) return null;
-    
-    return new THREE.CatmullRomCurve3(positions, false, "centripetal", 0.5);
-  }, [points, visiblePoints]);
+    try {
+      const points_array = trailCurve.getPoints(200);
+      if (points_array.length < 2) {
+        console.log('Trail: Not enough points in curve', points_array.length);
+        return null;
+      }
+      
+      const positions = new Float32Array(points_array.length * 3);
+      points_array.forEach((point, i) => {
+        positions[i * 3] = point.x;
+        positions[i * 3 + 1] = point.y;
+        positions[i * 3 + 2] = point.z;
+      });
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      console.log('Trail: ✅ lineGeometry created successfully with', points_array.length, 'points');
+      console.log('Trail: First point:', points_array[0], 'Last point:', points_array[points_array.length - 1]);
+      return geometry;
+    } catch (err) {
+      console.error('Error creating lineGeometry:', err);
+      return null;
+    }
+  }, [trailCurve]);
   
-  const thickLineGeometry = useMemo(() => {
-    if (!thickLineCurve) return null;
-    return new THREE.TubeGeometry(thickLineCurve, Math.max(50, visiblePoints * 10), 0.08, 8, false);
-  }, [thickLineCurve, visiblePoints]);
+  // Don't use tube geometry - use thin lines like MiniDemo
   
   // Glow pass (larger, more transparent)
   const glowGeometry = useMemo(() => {
-    if (!curve || points.length < 2) return null;
+    if (!curve || !points || points.length < 2 || visiblePoints < 2) return null;
     
-    const segments = Math.max(300, points.length * 40);
-    const radius = 0.2; // Larger for glow
-    const radialSegments = 16;
-    
-    return new THREE.TubeGeometry(curve, segments, radius, radialSegments, false);
-  }, [curve, points.length]);
-  
-  // Color gradient
-  const tubeColors = useMemo(() => {
-    if (!tubeGeometry || colors.length === 0) return null;
-    
-    const positions = tubeGeometry.getAttribute("position");
-    const vertexCount = positions.count;
-    const colorArray = new Float32Array(vertexCount * 3);
-    
-    for (let i = 0; i < vertexCount; i++) {
-      const t = i / (vertexCount - 1);
-      const colorIndex = Math.floor(t * (colors.length - 1));
-      const nextColorIndex = Math.min(colorIndex + 1, colors.length - 1);
-      const localT = (t * (colors.length - 1)) - colorIndex;
+    try {
+      const segments = Math.max(300, points.length * 40);
+      const radius = 0.2; // Larger for glow
+      const radialSegments = 16;
       
-      const color1 = colors[colorIndex] || colors[0];
-      const color2 = colors[nextColorIndex] || colors[colors.length - 1];
-      
-      const r = color1.r + (color2.r - color1.r) * localT;
-      const g = color1.g + (color2.g - color1.g) * localT;
-      const b = color1.b + (color2.b - color1.b) * localT;
-      
-      colorArray[i * 3] = r;
-      colorArray[i * 3 + 1] = g;
-      colorArray[i * 3 + 2] = b;
+      return new THREE.TubeGeometry(curve, segments, radius, radialSegments, false);
+    } catch (err) {
+      console.error('Error creating glowGeometry:', err);
+      return null;
     }
-    
-    return new THREE.BufferAttribute(colorArray, 3);
-  }, [tubeGeometry, colors]);
+  }, [curve, points, visiblePoints]);
+  
+  // Not using tube colors anymore - using simple line like MiniDemo
   
   if (points.length === 0) {
     return null;
@@ -237,102 +226,152 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
   const latestPoint = points.length > 0 ? points[Math.min(visiblePoints - 1, points.length - 1)] : null;
   const nClusters = Math.max(1, new Set(points.map((p) => p.cluster)).size);
   
+  // Early return if not enough points
+  if (!points || points.length < 2) {
+    console.log('Trail: Not enough points to render', points?.length);
+    return null;
+  }
+  
+  // Render trail - EXACT same approach as MiniDemo (simple line)
+  if (!lineGeometry) {
+    console.log('Trail: No lineGeometry, cannot render');
+    return null;
+  }
+  
+  console.log('Trail: ✅ Rendering line with', points.length, 'total points');
+  
+  // Calculate positions along the trail for word labels - SHOW ALL WORDS, not just visible ones
+  const labelPositions = useMemo(() => {
+    if (!points || points.length < 2) {
+      console.log('Trail: No points for labels');
+      return [];
+    }
+    
+    const labels: Array<{ position: THREE.Vector3; word: string; index: number }> = [];
+    // Use ALL points, not just visiblePoints - we want to see all words along the trail
+    const numLabels = points.length;
+    
+    console.log('Trail: Creating', numLabels, 'labels for', points.length, 'points (visiblePoints:', visiblePoints, ')');
+    
+    // Place labels directly at each point position with simple offset
+    for (let i = 0; i < numLabels; i++) {
+      const point = points[i];
+      
+      // Extract word from the point
+      const words = point.text_fragment.trim().split(/\s+/);
+      let displayWord = point.text_fragment;
+      if (words.length > 1) {
+        displayWord = words[words.length - 1]; // Last word
+      }
+      const truncated = displayWord.length > 12 ? displayWord.substring(0, 12) + "..." : displayWord;
+      
+      // Simple offset: place label above and slightly to the side of each point
+      // Alternate sides to avoid overlap
+      const offsetX = (i % 2 === 0 ? 0.6 : -0.6); // Alternate sides
+      const offsetY = 0.7; // Higher up for better visibility
+      const offsetPosition = new THREE.Vector3(
+        point.x + offsetX,
+        point.y + offsetY,
+        point.z
+      );
+      
+      labels.push({
+        position: offsetPosition,
+        word: truncated,
+        index: i
+      });
+    }
+    
+    console.log('Trail: Created', labels.length, 'labels');
+    return labels;
+  }, [points]); // Remove visiblePoints dependency - show all labels
+  
   return (
     <group ref={groupRef}>
-      {/* Simple line connecting points (always visible trail) */}
-      {lineGeometry && visiblePoints >= 2 && (
+      {/* Simple line - EXACT same as MiniDemo working version - thin lines */}
+      {lineGeometry && (
         <line geometry={lineGeometry}>
           <lineBasicMaterial
-            color="#00ffff"
-            transparent
-            opacity={1.0}
+            color="#00f5ff"
+            linewidth={2}
           />
         </line>
       )}
       
-      {/* Thick line trail (tube-based for visibility) */}
-      {thickLineGeometry && (
-        <mesh geometry={thickLineGeometry}>
-          <meshBasicMaterial
-            color="#00ffff"
-            transparent
-            opacity={0.9}
-          />
-        </mesh>
-      )}
-      
-      {/* Glow pass (behind) */}
-      {glowGeometry && (
-        <mesh ref={glowRef} geometry={glowGeometry}>
-          <meshStandardMaterial
-            vertexColors={tubeColors ? true : false}
-            color={tubeColors ? "#ffffff" : "#00ffff"}
-            emissive={tubeColors ? undefined : "#00ffff"}
-            emissiveIntensity={0.5}
-            side={THREE.DoubleSide}
-            transparent
-            opacity={0.4}
-            blending={THREE.AdditiveBlending}
-          />
-        </mesh>
-      )}
-      
-      {/* Main ribbon */}
-      {tubeGeometry && (
+      {/* Word labels along the trail segments - showing what each part represents */}
+      {labelPositions.length > 0 && (
         <>
-          {tubeColors && tubeGeometry.setAttribute("color", tubeColors)}
-          <mesh ref={meshRef} geometry={tubeGeometry}>
-            <meshStandardMaterial
-              vertexColors={tubeColors ? true : false}
-              color={tubeColors ? "#ffffff" : "#00ffff"}
-              emissive={tubeColors ? undefined : "#00ffff"}
-              emissiveIntensity={1.0}
-              side={THREE.DoubleSide}
-              roughness={0.1}
-              metalness={0.3}
-            />
-          </mesh>
+          {labelPositions.map((label, idx) => {
+            const point = points[label.index];
+            if (!point) return null;
+            
+            console.log(`Rendering label ${idx}: "${label.word}" at`, label.position);
+            
+            return (
+              <Text
+                key={`trail-label-${idx}-${label.index}`}
+                position={[label.position.x, label.position.y, label.position.z]}
+                fontSize={0.28}
+                color="#ffffff"
+                anchorX="center"
+                anchorY="middle"
+                outlineWidth={0.1}
+                outlineColor="#000000"
+                maxWidth={4.0}
+              >
+                {label.word}
+              </Text>
+            );
+          })}
         </>
       )}
         
-        {/* Glowing points */}
+        {/* Glowing points with word labels */}
         {points.slice(0, visiblePoints).map((point, idx) => {
           const color = getColor(point.sentiment, point.cluster, nClusters);
-          const size = 0.1;
+          const size = 0.12;
           const isLatest = idx === visiblePoints - 1;
           const isHovered = hoveredPoint === idx;
           
-          const words = point.text_fragment.split(/\s+/);
-          const displayWord = words.length > 1 ? words[words.length - 1] : point.text_fragment;
-          const truncated = displayWord.length > 18 ? displayWord.substring(0, 18) + "..." : displayWord;
+          // Extract the last word or the whole fragment if it's short
+          const words = point.text_fragment.trim().split(/\s+/);
+          let displayWord = point.text_fragment;
+          if (words.length > 1) {
+            // Get the last word
+            displayWord = words[words.length - 1];
+          }
+          // Truncate if too long
+          const truncated = displayWord.length > 15 ? displayWord.substring(0, 15) + "..." : displayWord;
           
           return (
-            <group key={idx}>
+            <group key={`point-${idx}`}>
               <mesh
                 position={[point.x, point.y, point.z]}
                 onPointerEnter={() => setHoveredPoint(idx)}
                 onPointerLeave={() => setHoveredPoint(null)}
               >
-                <sphereGeometry args={[size, 10, 10]} />
+                <sphereGeometry args={[size, 12, 12]} />
                 <meshStandardMaterial
                   color={color}
                   emissive={color}
-                  emissiveIntensity={isLatest || isHovered ? 1.0 : 0.7}
+                  emissiveIntensity={isLatest || isHovered ? 1.2 : 0.8}
                   transparent
-                  opacity={0.85}
+                  opacity={0.9}
                 />
               </mesh>
               
-              {/* Word label on every point */}
+              {/* Word label on every point - MAKE IT POP! */}
               <Text
-                position={[point.x, point.y + 0.25, point.z]}
-                fontSize={0.15}
-                color={color.getHexString()}
+                position={[point.x, point.y + 0.45, point.z]}
+                fontSize={0.28}
+                color="#ffffff"
                 anchorX="center"
                 anchorY="middle"
-                outlineWidth={0.015}
+                outlineWidth={0.08}
                 outlineColor="#000000"
-                maxWidth={2.0}
+                maxWidth={4.0}
+                strokeWidth={0.02}
+                strokeColor="#000000"
               >
                 {truncated}
               </Text>
