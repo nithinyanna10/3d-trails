@@ -1,6 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 from typing import List, Literal, Optional
 import numpy as np
@@ -10,6 +10,10 @@ from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import warnings
+import io
+# Audio processing imports (optional - uncomment when needed)
+# import speech_recognition as sr  # pip install SpeechRecognition
+# from transformers import pipeline  # For Hugging Face audio models
 
 warnings.filterwarnings("ignore")
 
@@ -317,6 +321,34 @@ async def options_embed():
             "Access-Control-Allow-Headers": "*",
         }
     )
+
+@app.post("/process-audio")
+async def process_audio(audio_file: UploadFile = File(...)):
+    """
+    Process audio file: transcribe speech or classify sounds
+    Returns text that can be used with /embed endpoint
+    """
+    try:
+        # Read audio file
+        audio_bytes = await audio_file.read()
+        
+        # For now, return a placeholder message
+        # In production, implement actual transcription using:
+        # - Google Cloud Speech-to-Text
+        # - AssemblyAI
+        # - OpenAI Whisper
+        # - Or local speech recognition
+        
+        return JSONResponse({
+            "text": "Audio file received. Please use speech recognition or type text directly for now. Full audio transcription coming soon.",
+            "success": True
+        })
+        
+    except Exception as e:
+        return JSONResponse(
+            {"error": str(e), "success": False},
+            status_code=500
+        )
 
 @app.get("/health")
 async def health():
