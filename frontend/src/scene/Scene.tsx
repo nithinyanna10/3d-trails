@@ -55,7 +55,7 @@ export default function Scene({
             <Trail
               points={points}
               animationProgress={animationProgress}
-              revealIndex={revealIndex > 0 ? Math.max(1, revealIndex) : Math.max(1, Math.ceil(points.length * animationProgress))}
+              revealIndex={revealIndex > 0 ? Math.max(2, revealIndex) : Math.max(2, Math.ceil(points.length * animationProgress))}
               speed={speed}
               showAnchorLabels={showAnchorLabels}
             />
@@ -63,7 +63,7 @@ export default function Scene({
             {/* Tight cluster clouds (toggleable) */}
             <ClusterZones
               points={points}
-              visiblePoints={revealIndex > 0 ? Math.max(1, revealIndex) : Math.max(1, Math.ceil(points.length * animationProgress))}
+              visiblePoints={revealIndex > 0 ? Math.max(2, revealIndex) : Math.max(2, Math.ceil(points.length * animationProgress))}
               showClusterClouds={showClusterClouds}
             />
             
