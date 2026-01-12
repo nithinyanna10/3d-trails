@@ -1,12 +1,12 @@
 # 3D Trails
 
-A locally runnable visualization app that transforms text into an interactive 3D semantic trail with particle effects. Watch your words flow through meaning space as a beautiful, animated 3D visualization.
+A premium visualization app that transforms text into an interactive 3D semantic trail with particle effects. Watch your words flow through meaning space as a beautiful, animated 3D visualization.
 
 ![3D Trails Visualization](./image.png)
 
 ## What It Does
 
-Type any text and watch it transform into a flowing 3D trail through semantic space. Each word becomes a colored sphere positioned in 3D based on its meaning, connected by a smooth curve that shows how your thoughts evolve. The colors reflect sentiment and topic clusters, while particles swirl around semantic anchors, creating a living visualization of language.
+Type any text and watch it transform into a flowing 3D trail through semantic space. Each word becomes a colored sphere positioned in 3D based on its meaning, connected by a smooth glowing ribbon that shows how your thoughts evolve. The colors reflect sentiment and topic clusters, while particles swirl around semantic anchors, creating a living visualization of language.
 
 ### Example
 
@@ -18,20 +18,27 @@ Watch how the trail shifts from optimistic (bright colors) to anxious (darker to
 
 ## Features
 
+- **Multi-page Premium Experience**: Landing page, Studio, and Gallery
 - **Text Embedding**: Compute embeddings per token/prefix using sentence-transformers
 - **3D Projection**: Reduce embeddings to 3D using UMAP (with PCA fallback)
 - **Sentiment Analysis**: Color-coded trail based on sentiment (VADER)
 - **Topic Clustering**: KMeans clustering for topic-based color modulation
 - **Particle System**: 1500+ particles attracted to semantic anchors with organic motion
-- **Smooth Animation**: CatmullRom curves for fluid trail visualization
-- **Word Labels**: Each sphere shows its word label on top
-- **Post-processing**: Bloom effects for premium visual quality
+- **Smooth Animation**: CatmullRom curves with arc-length resampling for fluid trail visualization
+- **Premium Visuals**: Glowing ribbon trail, bloom effects, fog, vignette
+- **Word Labels**: Each sphere shows its word label (hover for details)
+- **Timeline Scrubber**: Drag to scrub through meaning over time
+- **Preset Gallery**: Pre-configured visual styles
 
 ## Tech Stack
 
 - **Frontend**: React + Vite + TypeScript
+- **Routing**: React Router
+- **State**: Zustand
+- **Animations**: Framer Motion
+- **UI**: Tailwind CSS + Custom Components
 - **3D Rendering**: @react-three/fiber + three.js + @react-three/drei
-- **Post-processing**: @react-three/postprocessing (Bloom)
+- **Post-processing**: @react-three/postprocessing (Bloom + Vignette)
 - **Backend**: Python FastAPI
 - **Embeddings**: sentence-transformers (all-MiniLM-L6-v2)
 - **Dimensionality Reduction**: UMAP (fallback: PCA)
@@ -47,18 +54,30 @@ Watch how the trail shifts from optimistic (bright colors) to anxious (darker to
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx
-│   │   ├── Scene.tsx
-│   │   ├── Trail.tsx
-│   │   ├── Particles.tsx
+│   │   ├── pages/
+│   │   │   ├── Landing.tsx
+│   │   │   ├── Studio.tsx
+│   │   │   └── Gallery.tsx
+│   │   ├── scene/
+│   │   │   ├── Scene.tsx
+│   │   │   ├── Trail.tsx
+│   │   │   ├── Particles.tsx
+│   │   │   └── ClusterZones.tsx
+│   │   ├── components/
+│   │   │   ├── ui/
+│   │   │   │   ├── button.tsx
+│   │   │   │   ├── card.tsx
+│   │   │   │   ├── tabs.tsx
+│   │   │   │   └── slider.tsx
+│   │   │   └── MiniDemo.tsx
+│   │   ├── state/
+│   │   │   └── store.ts
 │   │   ├── api.ts
 │   │   ├── color.ts
-│   │   ├── main.tsx
-│   │   ├── App.css
-│   │   └── index.css
-│   ├── index.html
+│   │   ├── App.tsx
+│   │   └── main.tsx
 │   ├── package.json
-│   ├── tsconfig.json
+│   ├── tailwind.config.js
 │   └── vite.config.ts
 ├── image.png
 └── README.md
@@ -141,28 +160,73 @@ The frontend will be available at `http://localhost:5173`
 
 ## Usage
 
-1. Start both backend and frontend servers (see Setup above)
-2. Open `http://localhost:5173` in your browser
-3. Type text in the left panel textarea
-4. Watch the 3D trail build as you type (debounced 400ms)
-5. Adjust controls:
-   - **Mode**: Switch between "prefix" (cumulative) or "token" (per-word) visualization
-   - **Speed**: Control animation speed (0.2x to 3x)
-   - **Show particles**: Toggle particle system (1500 swirling particles)
-   - **Show anchor labels**: Display word labels on each sphere
+### Landing Page (`/`)
+
+- Hero section with product introduction
+- Live mini demo showing the visualization
+- Scroll storytelling sections explaining features
+- CTA button to open Studio
+
+### Studio (`/studio`)
+
+The main workspace for creating visualizations:
+
+1. **Compose Tab**:
+   - Text input area
+   - Mode selector (Prefix/Token)
+   - Speed slider
+   - Real-time stats (points, clusters)
+
+2. **Look Tab**:
+   - Toggle particles
+   - Toggle cluster clouds
+   - Toggle latest point label
+
+3. **Export Tab**:
+   - Screenshot button
+   - Record GIF/MP4 (coming soon)
+
+4. **Timeline Scrubber**:
+   - Drag to scrub through the trail
+   - Shows current position in the semantic journey
+
+**Keyboard Shortcuts:**
+- `Cmd+Enter` (Mac) or `Ctrl+Enter` (Windows): Process text
+
+### Gallery (`/gallery`)
+
+Browse and apply preset visual styles:
+- Anxiety Spiral
+- Calm Nebula
+- Chaos → Control
+- Techno Ribbon
+- And more...
+
+Click any preset to open Studio with that style applied.
 
 ## How It Works
 
 1. **Text Processing**: Your text is split into tokens or cumulative prefixes
 2. **Embedding**: Each fragment is converted to a high-dimensional vector using sentence-transformers
-3. **3D Projection**: UMAP (or PCA) reduces the embeddings to 3D coordinates
+3. **3D Projection**: UMAP (or PCA) reduces the embeddings to 3D coordinates with temporal smoothing
 4. **Sentiment Analysis**: VADER analyzes sentiment for each fragment
-5. **Clustering**: KMeans groups similar meanings into clusters
+5. **Clustering**: KMeans groups similar meanings into clusters (on original embeddings)
 6. **Visualization**: 
-   - A smooth curve connects the points in 3D space
+   - A smooth glowing ribbon connects the points in 3D space
    - Each point is a colored sphere showing its word
    - Colors reflect sentiment (brightness) and topic (hue)
-   - Particles swirl around semantic anchors
+   - Particles swirl around semantic anchors (medoids)
+   - Arc-length resampling ensures smooth, constant-speed motion
+
+## Premium Visual Features
+
+- **Glowing Ribbon Trail**: Thin tube with glow pass for premium look
+- **Head Comet**: Bright orb at the latest point
+- **Bloom Effects**: Post-processing bloom for ethereal glow
+- **Vignette**: Subtle darkening at edges
+- **Atmospheric Fog**: Depth and atmosphere
+- **Gradient Background**: Not pure black, more depth
+- **Smooth Motion**: Arc-length resampling for constant-speed animation
 
 ## API Contract
 
@@ -218,7 +282,7 @@ The frontend will be available at `http://localhost:5173`
 - Animation uses `requestAnimationFrame` for smooth 60fps
 - Debounced API calls (400ms) prevent excessive requests
 - Post-processing bloom is optimized for performance
-- High-resolution curves (300+ segments) for smooth trails
+- High-resolution curves (300+ segments) with arc-length resampling for smooth trails
 
 ## Troubleshooting
 
