@@ -49,3 +49,9 @@ Thumbs.db
 *.temp
 .cache/
 
+# Audio files (test files)
+*.mp3
+*.wav
+*.m4a
+*.ogg
+
