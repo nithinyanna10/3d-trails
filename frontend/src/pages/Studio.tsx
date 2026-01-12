@@ -63,8 +63,9 @@ export default function Studio() {
           setAnchors(response.anchors);
           setMeta(response.meta);
           setAnimationProgress(0); // Reset animation
-          // Start with at least 1 point visible
-          setRevealIndex(response.points.length > 0 ? 1 : 0);
+          // Start with 2-5 points visible so trail can render
+          const initialReveal = Math.max(2, Math.min(5, response.points.length));
+          setRevealIndex(initialReveal);
         } catch (error) {
           console.error('Error embedding text:', error);
           setIsLoading(false);
@@ -93,13 +94,15 @@ export default function Studio() {
 
       setAnimationProgress((prev) => {
         if (prev >= 1.0) return 1.0;
-        const increment = (delta * speed) / 10;
+        // Faster animation - reveal trail more quickly
+        const increment = (delta * speed) / 5; // Changed from /10 to /5 for faster animation
         return Math.min(1.0, prev + increment);
       });
 
       rafId = requestAnimationFrame(animate);
     };
 
+    // Start animation immediately
     rafId = requestAnimationFrame(animate);
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
@@ -108,11 +111,11 @@ export default function Studio() {
 
   // Reset animation when new points arrive
   useEffect(() => {
-    if (points.length > 0 && revealIndex === 0) {
+    if (points.length > 0) {
       setAnimationProgress(0);
-      setRevealIndex(1); // Start with at least 1 point visible
+      setRevealIndex(Math.max(2, Math.min(5, points.length))); // Start with 2-5 points visible for trail
     }
-  }, [points.length, revealIndex, setAnimationProgress, setRevealIndex]);
+  }, [points.length, setAnimationProgress, setRevealIndex]);
 
   // Keyboard shortcut
   useEffect(() => {
@@ -137,7 +140,7 @@ export default function Studio() {
   // Auto-update revealIndex from animationProgress when not scrubbing
   useEffect(() => {
     if (!isScrubbing && points.length > 0 && animationProgress > 0) {
-      const index = Math.max(0, Math.min(Math.floor(animationProgress * points.length), points.length));
+      const index = Math.max(2, Math.min(Math.floor(animationProgress * points.length), points.length));
       setRevealIndex(index);
     }
   }, [animationProgress, isScrubbing, points.length, setRevealIndex]);
