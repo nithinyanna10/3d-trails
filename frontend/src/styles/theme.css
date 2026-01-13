@@ -1,0 +1,174 @@
+/* Trails Design System */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@400;600&display=swap');
+
+:root {
+  /* Colors */
+  --bg-base: #070A12;
+  --bg-gradient-top: #0B1220;
+  --panel-glass: rgba(255, 255, 255, 0.06);
+  --panel-border: rgba(255, 255, 255, 0.10);
+  --text-primary: #EAF0FF;
+  --text-secondary: rgba(234, 240, 255, 0.72);
+  --text-muted: rgba(234, 240, 255, 0.45);
+  --accent-cyan: #47D7FF;
+  --accent-violet: #8B5CFF;
+  --accent-lime: #7CFF8A;
+  --danger: #FF4D6D;
+  --warning: #FFB020;
+  --success: #36D399;
+  --grid-lines: rgba(255, 255, 255, 0.04);
+  
+  /* Interaction */
+  --hover-glow: 0 0 0 1px rgba(71, 215, 255, 0.35), 0 0 24px rgba(139, 92, 255, 0.20);
+  --focus-ring: rgba(71, 215, 255, 0.6);
+  
+  /* Elevation */
+  --backdrop-blur: 16px;
+  --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.45);
+  
+  /* Spacing */
+  --spacing-unit: 8px;
+  --max-content-width: 1120px;
+  
+  /* Typography */
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-heading: 'Sora', -apple-system, BlinkMacSystemFont, sans-serif;
+  
+  /* Motion */
+  --transition-fast: 120ms;
+  --transition-base: 220ms;
+  --transition-slow: 400ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+#root {
+  width: 100vw;
+  min-height: 100vh;
+}
+
+/* Typography Scale */
+h1, .h1 {
+  font-family: var(--font-heading);
+  font-size: 48px;
+  line-height: 56px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+h2, .h2 {
+  font-family: var(--font-heading);
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.body {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.label {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+/* Glass Panel */
+.glass-panel {
+  background: var(--panel-glass);
+  backdrop-filter: blur(var(--backdrop-blur));
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow-soft);
+}
+
+/* Button Gradient */
+.btn-gradient {
+  background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-violet) 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-gradient::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.1'/%3E%3C/svg%3E");
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.btn-gradient:hover {
+  box-shadow: var(--hover-glow);
+}
+
+/* Breathing Background Animation */
+@keyframes breathe {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.bg-breathing {
+  background: linear-gradient(135deg, var(--bg-base) 0%, var(--bg-gradient-top) 50%, var(--bg-base) 100%);
+  background-size: 200% 200%;
+  animation: breathe 20s ease-in-out infinite;
+}
+
+/* Star Field */
+.star-field {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.star {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  background: var(--text-primary);
+  opacity: 0.3;
+  border-radius: 50%;
+  animation: twinkle 3s ease-in-out infinite;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
