@@ -4,9 +4,9 @@ import { Point, Anchor } from '../api';
 interface AppState {
   // Text & Mode
   text: string;
-  mode: 'prefix' | 'token';
+  mode: 'prefix' | 'token' | 'sentences';
   setText: (text: string) => void;
-  setMode: (mode: 'prefix' | 'token') => void;
+  setMode: (mode: 'prefix' | 'token' | 'sentences') => void;
   
   // Points & Data
   points: Point[];
@@ -32,6 +32,10 @@ interface AppState {
   setShowClusterClouds: (show: boolean) => void;
   setShowAnchorLabels: (show: boolean) => void;
   
+  // Camera
+  cameraMode: 'drift' | 'orbit' | 'static';
+  setCameraMode: (mode: 'drift' | 'orbit' | 'static') => void;
+  
   // Preset
   preset: string | null;
   setPreset: (preset: string | null) => void;
@@ -39,6 +43,10 @@ interface AppState {
   // Loading
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
+  
+  // Latency tracking
+  latency: number;
+  setLatency: (latency: number) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -54,13 +62,15 @@ export const useStore = create<AppState>((set) => ({
   showParticles: true,
   showClusterClouds: false,
   showAnchorLabels: false,
+  cameraMode: 'orbit',
   preset: null,
   isLoading: false,
+  latency: 0,
   
   // Setters
   setText: (text) => set({ text }),
   setMode: (mode) => set({ mode }),
-  setPoints: (points) => set({ points, revealIndex: points.length }),
+  setPoints: (points) => set({ points, revealIndex: Math.max(2, points.length) }),
   setAnchors: (anchors) => set({ anchors }),
   setMeta: (meta) => set({ meta }),
   setAnimationProgress: (progress) => set({ animationProgress: progress }),
@@ -69,7 +79,23 @@ export const useStore = create<AppState>((set) => ({
   setShowParticles: (showParticles) => set({ showParticles }),
   setShowClusterClouds: (showClusterClouds) => set({ showClusterClouds }),
   setShowAnchorLabels: (showAnchorLabels) => set({ showAnchorLabels }),
+  setCameraMode: (cameraMode) => set({ cameraMode }),
   setPreset: (preset) => set({ preset }),
   setIsLoading: (isLoading) => set({ isLoading }),
+  setLatency: (latency) => set({ latency }),
 }));
+
+// Helper function to calculate progress (never NaN)
+export function calculateProgress(revealIndex: number, nPoints: number): number {
+  if (nPoints <= 1) return 0;
+  const progress = (revealIndex / Math.max(1, nPoints - 1)) * 100;
+  return Math.max(0, Math.min(100, progress));
+}
+
+// Helper function to calculate average sentiment
+export function calculateAverageSentiment(points: Point[]): number {
+  if (points.length === 0) return 0;
+  const sum = points.reduce((acc, p) => acc + p.sentiment, 0);
+  return sum / points.length;
+}
 
