@@ -43,7 +43,13 @@ export async function embedText(
   return response.json();
 }
 
-export async function processAudioFile(file: File): Promise<{ text: string; success: boolean }> {
+export interface ProcessFileResponse {
+  text?: string;
+  success: boolean;
+  error?: string;
+}
+
+export async function processAudioFile(file: File): Promise<ProcessFileResponse> {
   const formData = new FormData();
   formData.append("audio_file", file);
 
@@ -53,7 +59,25 @@ export async function processAudioFile(file: File): Promise<{ text: string; succ
   });
 
   if (!response.ok) {
-    throw new Error(`API error: ${response.statusText}`);
+    const errorData = await response.json();
+    throw new Error(`API error: ${response.statusText} - ${errorData.detail || errorData.error}`);
+  }
+
+  return response.json();
+}
+
+export async function processImageFile(file: File): Promise<EmbedResponse> {
+  const formData = new FormData();
+  formData.append("image_file", file);
+
+  const response = await fetch("http://localhost:8000/process-image", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(`API error: ${response.statusText} - ${errorData.detail || errorData.error}`);
   }
 
   return response.json();
