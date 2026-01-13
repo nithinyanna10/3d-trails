@@ -37,10 +37,10 @@ export default function Particles({
       velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.02;
       velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.02;
       
-      // Random colors (subtle)
-      colors[i * 3] = 0.3 + Math.random() * 0.3;
-      colors[i * 3 + 1] = 0.3 + Math.random() * 0.3;
-      colors[i * 3 + 2] = 0.5 + Math.random() * 0.5;
+      // Lower brightness colors (more subtle)
+      colors[i * 3] = 0.2 + Math.random() * 0.2;
+      colors[i * 3 + 1] = 0.2 + Math.random() * 0.2;
+      colors[i * 3 + 2] = 0.3 + Math.random() * 0.3;
     }
     
     const geometry = new THREE.BufferGeometry();
@@ -156,10 +156,10 @@ export default function Particles({
     <>
       <points ref={pointsRef} geometry={geometry}>
         <pointsMaterial
-          size={0.03}
+          size={0.02}
           vertexColors={true}
           transparent
-          opacity={0.7}
+          opacity={0.5}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
