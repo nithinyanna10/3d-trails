@@ -1,6 +1,6 @@
-import { Canvas } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera } from "@react-three/drei";
-import { Suspense } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls, PerspectiveCamera, Stars } from "@react-three/drei";
+import { Suspense, useRef } from "react";
 import * as THREE from "three";
 import Trail from "./Trail";
 import Particles from "./Particles";
@@ -17,6 +17,84 @@ interface SceneProps {
   animationProgress: number;
   revealIndex: number;
   speed: number;
+  cameraMode?: 'drift' | 'orbit' | 'static';
+}
+
+// Star Field Component
+function StarField() {
+  const starsRef = useRef<THREE.Points>(null);
+  
+  useFrame(() => {
+    if (starsRef.current) {
+      starsRef.current.rotation.y += 0.0001;
+    }
+  });
+
+  const stars = Array.from({ length: 500 }).map(() => ({
+    position: [
+      (Math.random() - 0.5) * 100,
+      (Math.random() - 0.5) * 100,
+      (Math.random() - 0.5) * 100,
+    ] as [number, number, number],
+  }));
+
+  return (
+    <points ref={starsRef}>
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          count={stars.length}
+          array={new Float32Array(stars.flatMap((s) => s.position))}
+          itemSize={3}
+        />
+      </bufferGeometry>
+      <pointsMaterial
+        size={0.5}
+        color="#EAF0FF"
+        opacity={0.3}
+        transparent
+        sizeAttenuation={false}
+      />
+    </points>
+  );
+}
+
+// Camera Controller
+function CameraController({ mode }: { mode: 'drift' | 'orbit' | 'static' }) {
+  const cameraRef = useRef<THREE.PerspectiveCamera>(null);
+  const controlsRef = useRef<any>(null);
+
+  useFrame((state, delta) => {
+    if (mode === 'drift' && cameraRef.current) {
+      // Gentle drift
+      cameraRef.current.position.x += Math.sin(state.clock.elapsedTime * 0.1) * 0.01;
+      cameraRef.current.position.y += Math.cos(state.clock.elapsedTime * 0.15) * 0.01;
+    } else if (mode === 'orbit' && controlsRef.current) {
+      // Auto-rotate
+      controlsRef.current.setAzimuthalAngle(controlsRef.current.getAzimuthalAngle() + delta * 0.1);
+    }
+  });
+
+  return (
+    <>
+      <PerspectiveCamera
+        ref={cameraRef}
+        makeDefault
+        position={[0, 0, 15]}
+        fov={50}
+      />
+      <OrbitControls
+        ref={controlsRef}
+        enablePan={true}
+        enableZoom={true}
+        enableRotate={true}
+        minDistance={5}
+        maxDistance={50}
+        autoRotate={mode === 'orbit'}
+        autoRotateSpeed={0.5}
+      />
+    </>
+  );
 }
 
 export default function Scene({
@@ -28,26 +106,38 @@ export default function Scene({
   animationProgress,
   revealIndex,
   speed,
+  cameraMode = 'orbit',
 }: SceneProps) {
   return (
     <Canvas
       gl={{ antialias: true, alpha: false }}
       dpr={[1, 2]}
-      style={{ background: "linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%)" }}
+      style={{ background: 'var(--bg-base)' }}
     >
-      <PerspectiveCamera makeDefault position={[0, 0, 15]} fov={50} />
+      <CameraController mode={cameraMode} />
       
       {/* Premium Lighting */}
-      <ambientLight intensity={0.5} />
-      <pointLight position={[10, 10, 10]} intensity={0.8} />
-      <pointLight position={[-10, -10, -10]} intensity={0.4} />
-      <directionalLight position={[0, 10, 5]} intensity={0.3} />
+      <ambientLight intensity={0.4} />
+      <pointLight position={[10, 10, 10]} intensity={0.6} />
+      <pointLight position={[-10, -10, -10]} intensity={0.3} />
+      <directionalLight position={[0, 10, 5]} intensity={0.2} />
       
       {/* Atmospheric Fog */}
-      <fog attach="fog" args={["#0a0a0a", 8, 40]} />
+      <fog attach="fog" args={['#070A12', 8, 40]} />
       
-      {/* Grid helper (subtle) */}
-      <gridHelper args={[20, 20, "#1a1a1a", "#0f0f0f"]} />
+      {/* Star Field (replaces grid) */}
+      <StarField />
+      
+      {/* Horizon Haze */}
+      <mesh position={[0, -10, -5]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[50, 50]} />
+        <meshBasicMaterial
+          color="#0B1220"
+          opacity={0.3}
+          transparent
+          side={THREE.DoubleSide}
+        />
+      </mesh>
       
       <Suspense fallback={null}>
         {points.length > 0 && (
@@ -70,7 +160,7 @@ export default function Scene({
             {showParticles && anchors.length > 0 && (
               <Particles
                 anchors={anchors}
-                nParticles={1500}
+                nParticles={3000}
                 showAnchorLabels={false}
               />
             )}
@@ -78,27 +168,16 @@ export default function Scene({
         )}
       </Suspense>
       
-      <OrbitControls
-        enablePan={true}
-        enableZoom={true}
-        enableRotate={true}
-        minDistance={5}
-        maxDistance={50}
-        autoRotate={false}
-        autoRotateSpeed={0.5}
-      />
-      
       {/* Premium Post-processing */}
       <EffectComposer>
         <Bloom
-          intensity={0.6}
-          luminanceThreshold={0.4}
+          intensity={0.4}
+          luminanceThreshold={0.5}
           luminanceSmoothing={0.9}
           height={300}
         />
-        <Vignette eskil={false} offset={0.1} darkness={0.5} />
+        <Vignette eskil={false} offset={0.1} darkness={0.4} />
       </EffectComposer>
     </Canvas>
   );
 }
-
