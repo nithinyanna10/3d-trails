@@ -11,9 +11,15 @@ from sklearn.neighbors import NearestNeighbors
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import warnings
 import io
-# Audio processing imports (optional - uncomment when needed)
-# import speech_recognition as sr  # pip install SpeechRecognition
-# from transformers import pipeline  # For Hugging Face audio models
+from PIL import Image
+import torch
+
+# Try to import vision model for image embeddings
+try:
+    from transformers import CLIPProcessor, CLIPModel
+    HAS_VISION = True
+except ImportError:
+    HAS_VISION = False
 
 warnings.filterwarnings("ignore")
 
@@ -39,6 +45,8 @@ app.add_middleware(
 # Load models (lazy loading)
 model = None
 sentiment_analyzer = None
+vision_model = None
+vision_processor = None
 
 def get_model():
     global model
@@ -51,6 +59,22 @@ def get_sentiment_analyzer():
     if sentiment_analyzer is None:
         sentiment_analyzer = SentimentIntensityAnalyzer()
     return sentiment_analyzer
+
+def get_vision_model():
+    """Load CLIP model for image embeddings"""
+    global vision_model, vision_processor
+    if vision_model is None and HAS_VISION:
+        try:
+            print("Loading CLIP model (this may take a minute on first run)...")
+            vision_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+            vision_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+            print("✓ CLIP model loaded successfully")
+        except Exception as e:
+            print(f"Failed to load vision model: {e}")
+            import traceback
+            traceback.print_exc()
+            return None, None
+    return vision_model, vision_processor
 
 class EmbedRequest(BaseModel):
     text: str
@@ -350,7 +374,159 @@ async def process_audio(audio_file: UploadFile = File(...)):
             status_code=500
         )
 
+@app.post("/process-image", response_model=EmbedResponse)
+async def process_image(image_file: UploadFile = File(...)):
+    """
+    Process image file: create embeddings directly from image (like voice/speech)
+    Returns EmbedResponse with points from image embeddings
+    """
+    try:
+        # Read image file
+        image_bytes = await image_file.read()
+        
+        # Validate file type
+        if not image_file.content_type or not image_file.content_type.startswith('image/'):
+            return JSONResponse(
+                {"error": "File must be an image", "success": False},
+                status_code=400
+            )
+        
+        # Open image with PIL
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # Convert to RGB if necessary
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Get vision model for image embeddings
+        print(f"Processing image: {image_file.filename}, size: {len(image_bytes)} bytes")
+        vision_model, vision_processor = get_vision_model()
+        
+        if not vision_model or not vision_processor:
+            print("ERROR: Vision model not available!")
+            return EmbedResponse(
+                points=[],
+                anchors=[],
+                meta={"n_points": 0, "n_clusters": 0}
+            )
+        
+        print("Creating image embeddings using CLIP...")
+        # Create image embeddings using CLIP
+        # Process image into patches/regions to create multiple embeddings (like text fragments)
+        # Split image into grid regions for multiple embeddings
+        width, height = image.size
+        grid_size = 3  # 3x3 grid = 9 regions
+        patch_width = width // grid_size
+        patch_height = height // grid_size
+        
+        fragments = []
+        embeddings_list = []
+        
+        # Extract embeddings from each grid region
+        for i in range(grid_size):
+            for j in range(grid_size):
+                left = j * patch_width
+                top = i * patch_height
+                right = left + patch_width if j < grid_size - 1 else width
+                bottom = top + patch_height if i < grid_size - 1 else height
+                
+                # Crop region
+                region = image.crop((left, top, right, bottom))
+                
+                # Get embedding for this region
+                inputs = vision_processor(images=region, return_tensors="pt")
+                with torch.no_grad():
+                    image_features = vision_model.get_image_features(**inputs)
+                    embedding = image_features[0].numpy()
+                
+                fragments.append(f"region_{i}_{j}")
+                embeddings_list.append(embedding)
+        
+        # Also get full image embedding
+        inputs = vision_processor(images=image, return_tensors="pt")
+        with torch.no_grad():
+            image_features = vision_model.get_image_features(**inputs)
+            full_embedding = image_features[0].numpy()
+        
+        fragments.append("full_image")
+        embeddings_list.append(full_embedding)
+        
+        # Convert to numpy array
+        embeddings = np.array(embeddings_list)
+        print(f"Created {len(embeddings)} image embeddings, shape: {embeddings.shape}")
+        
+        # Reduce to 3D (same as text embeddings)
+        coords_3d = reduce_to_3d(embeddings)
+        coords_3d = normalize_3d(coords_3d)
+        coords_3d = apply_temporal_smoothing(coords_3d)
+        
+        # Compute sentiment (neutral for images, or could use image classification)
+        sentiments = [0.0] * len(fragments)  # Neutral sentiment for images
+        
+        # Compute clusters
+        cluster_labels = compute_clusters(embeddings, len(fragments))
+        
+        # Create points
+        points = []
+        for i, (frag, sent, cluster) in enumerate(zip(fragments, sentiments, cluster_labels)):
+            points.append(Point(
+                x=float(coords_3d[i, 0]),
+                y=float(coords_3d[i, 1]),
+                z=float(coords_3d[i, 2]),
+                text_fragment=frag,
+                sentiment=sent,
+                cluster=int(cluster)
+            ))
+        
+        # Compute anchors
+        anchors = compute_anchors(embeddings, coords_3d, cluster_labels, fragments)
+        
+        # Metadata
+        n_clusters = len(np.unique(cluster_labels))
+        
+        return EmbedResponse(
+            points=points,
+            anchors=anchors,
+            meta={
+                "n_points": len(points),
+                "n_clusters": n_clusters
+            }
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"Error processing image: {e}")
+        print(traceback.format_exc())
+        # Return empty response on error
+        return EmbedResponse(
+            points=[],
+            anchors=[],
+            meta={"n_points": 0, "n_clusters": 0}
+        )
+
+@app.options("/process-image")
+async def options_process_image():
+    """Handle CORS preflight for /process-image endpoint"""
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+@app.get("/check-vision")
+async def check_vision():
+    """Check if vision model is available"""
+    vision_model, vision_processor = get_vision_model()
+    return {
+        "has_vision": HAS_VISION,
+        "model_loaded": vision_model is not None,
+        "processor_loaded": vision_processor is not None
+    }
 
