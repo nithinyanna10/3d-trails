@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore, calculateProgress, calculateAverageSentiment } from '../state/store';
-import { embedText, processAudioFile } from '../api';
+import { embedText, processAudioFile, processImageFile } from '../api';
 import Scene from '../scene/Scene';
 import TopNav from '../components/TopNav';
 import ControlDock from '../components/ControlDock';
@@ -12,7 +12,7 @@ import { Label } from '../components/ui/label';
 import { useVoiceRecognition } from '../hooks/useVoiceRecognition';
 import { useSoundClassification } from '../hooks/useSoundClassification';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, Upload, Type, Play, Pause } from 'lucide-react';
+import { Mic, Upload, Type, Play, Pause, Image as ImageIcon } from 'lucide-react';
 
 export default function Studio() {
   const [searchParams] = useSearchParams();
@@ -51,9 +51,10 @@ export default function Studio() {
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [activeTab, setActiveTab] = useState('compose');
   const [isScrubbing, setIsScrubbing] = useState(false);
-  const [inputMode, setInputMode] = useState<'text' | 'speech' | 'sound'>('text');
+  const [inputMode, setInputMode] = useState<'text' | 'speech' | 'sound' | 'image'>('text');
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [detectedSounds, setDetectedSounds] = useState<string[]>([]);
   const [soundDetectionMode, setSoundDetectionMode] = useState<'auto' | 'manual'>('manual');
 
@@ -165,11 +166,39 @@ export default function Studio() {
     }
   }, [setText, debouncedEmbed, mode]);
 
+  // Handle image upload - directly creates embeddings and points
+  const handleImageUpload = useCallback(async (file: File) => {
+    setIsUploading(true);
+    setIsLoading(true);
+    try {
+      console.log('Processing image:', file.name);
+      // Process image directly to get embeddings (like voice/speech)
+      const result = await processImageFile(file);
+      console.log('Image processed, got points:', result.points.length);
+      // result is already an EmbedResponse with points and anchors
+      setPoints(result.points);
+      setAnchors(result.anchors);
+      setMeta(result.meta);
+      setAnimationProgress(0);
+      const initialReveal = Math.max(2, Math.min(5, result.points.length));
+      setRevealIndex(initialReveal);
+      // Clear text to prevent text embedding from triggering
+      setText('');
+    } catch (error) {
+      console.error('Error processing image:', error);
+      alert(`Error processing image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsUploading(false);
+      setIsLoading(false);
+    }
+  }, [setPoints, setAnchors, setMeta, setAnimationProgress, setRevealIndex, setText]);
+
   useEffect(() => {
-    if (text.trim()) {
+    // Only embed text if we're not uploading an image
+    if (text.trim() && !isUploading && inputMode !== 'image') {
       debouncedEmbed(text, mode);
     }
-  }, [text, mode, debouncedEmbed]);
+  }, [text, mode, debouncedEmbed, isUploading, inputMode]);
 
   // Animation loop
   useEffect(() => {
@@ -311,8 +340,8 @@ export default function Studio() {
               {/* Input Mode */}
               <div className="space-y-3">
                 <Label className="label">Input Mode</Label>
-                <div className="grid grid-cols-3 gap-3">
-                  {(['text', 'speech', 'sound'] as const).map((mode) => (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {(['text', 'speech', 'sound', 'image'] as const).map((mode) => (
                     <motion.button
                       key={mode}
                       whileHover={{ scale: 1.02 }}
@@ -333,6 +362,7 @@ export default function Studio() {
                       {mode === 'text' && <Type className="w-5 h-5 mx-auto mb-2" />}
                       {mode === 'speech' && <Mic className="w-5 h-5 mx-auto mb-2" />}
                       {mode === 'sound' && <Upload className="w-5 h-5 mx-auto mb-2" />}
+                      {mode === 'image' && <ImageIcon className="w-5 h-5 mx-auto mb-2" />}
                       <div className="text-xs font-medium capitalize">{mode}</div>
                     </motion.button>
                   ))}
@@ -380,6 +410,24 @@ export default function Studio() {
                         </Button>
                       </>
                     )}
+                    {inputMode === 'image' && (
+                      <>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          ref={imageInputRef}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleImageUpload(file);
+                          }}
+                          className="hidden"
+                        />
+                        <Button size="sm" onClick={() => imageInputRef.current?.click()} disabled={isUploading}>
+                          <ImageIcon className="w-4 h-4 mr-2" />
+                          {isUploading ? 'Processing...' : 'Upload Image'}
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -392,7 +440,11 @@ export default function Studio() {
                 <textarea
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder="Type your text here... (Cmd+Enter to process)"
+                  placeholder={
+                    inputMode === 'image'
+                      ? 'Upload an image to create embeddings directly (like voice/speech)...'
+                      : 'Type your text here... (Cmd+Enter to process)'
+                  }
                   className="w-full h-32 bg-[var(--panel-glass)] border border-[var(--panel-border)] rounded-xl p-4 text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] transition-all"
                 />
               </div>
