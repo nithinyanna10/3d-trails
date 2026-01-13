@@ -1,12 +1,13 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useStore, calculateProgress, calculateAverageSentiment } from '../state/store';
 import { embedText, processAudioFile, processImageFile } from '../api';
+import { getPresetConfig } from '../utils/presets';
 import Scene from '../scene/Scene';
-import TopNav from '../components/TopNav';
-import ControlDock from '../components/ControlDock';
+import StudioTopBar from '../components/StudioTopBar';
+import CommandDock from '../components/CommandDock';
+import InspectorPanel from '../components/InspectorPanel';
 import { Slider } from '../components/ui/slider';
-import { Button } from '../components/ui/button';
 import { Switch } from '../components/ui/switch';
 import { Label } from '../components/ui/label';
 import { useVoiceRecognition } from '../hooks/useVoiceRecognition';
@@ -16,6 +17,7 @@ import { Mic, Upload, Type, Play, Pause, Image as ImageIcon } from 'lucide-react
 
 export default function Studio() {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const {
     text,
     mode,
@@ -58,14 +60,38 @@ export default function Studio() {
   const [detectedSounds, setDetectedSounds] = useState<string[]>([]);
   const [soundDetectionMode, setSoundDetectionMode] = useState<'auto' | 'manual'>('manual');
 
-  // Handle preset from URL
+  // Handle preset from URL and apply settings
   useEffect(() => {
     const presetId = searchParams.get('preset');
     if (presetId) {
       setPreset(presetId);
-      // Apply preset settings here if needed
+      const presetConfig = getPresetConfig(presetId);
+      
+      if (presetConfig) {
+        // Apply preset settings
+        const { settings } = presetConfig;
+        
+        if (settings.speed !== undefined) setSpeed(settings.speed);
+        if (settings.showParticles !== undefined) setShowParticles(settings.showParticles);
+        if (settings.showClusterClouds !== undefined) setShowClusterClouds(settings.showClusterClouds);
+        if (settings.showAnchorLabels !== undefined) setShowAnchorLabels(settings.showAnchorLabels);
+        if (settings.cameraMode) setCameraMode(settings.cameraMode);
+        if (settings.mode) setMode(settings.mode);
+        
+        // Load sample text if provided and no text exists
+        if (settings.sampleText && !text.trim()) {
+          setText(settings.sampleText);
+        }
+      }
     }
-  }, [searchParams, setPreset]);
+  }, [searchParams, setPreset, setSpeed, setShowParticles, setShowClusterClouds, setShowAnchorLabels, setCameraMode, setMode, setText, text]);
+
+  // Handle initial text from landing page
+  useEffect(() => {
+    if (location.state?.initialText) {
+      setText(location.state.initialText);
+    }
+  }, [location.state, setText]);
 
   // Voice recognition
   const {
@@ -233,16 +259,24 @@ export default function Studio() {
     }
   }, [points.length, setAnimationProgress, setRevealIndex]);
 
-  // Keyboard shortcut
+  // Handle Process action
+  const handleProcess = useCallback(() => {
+    if (text.trim() && !isUploading && inputMode !== 'image') {
+      debouncedEmbed(text, mode);
+    }
+  }, [text, mode, debouncedEmbed, isUploading, inputMode]);
+
+  // Keyboard shortcut (Cmd+Enter)
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        debouncedEmbed(text, mode);
+        e.preventDefault();
+        handleProcess();
       }
     };
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [text, mode, debouncedEmbed]);
+  }, [handleProcess]);
 
   const handleTimelineChange = (value: number) => {
     setIsScrubbing(true);
@@ -288,26 +322,10 @@ export default function Studio() {
 
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-base)] overflow-hidden">
-      <TopNav onShare={handleShare} onExport={handleExport} />
+      <StudioTopBar onShare={handleShare} onExport={handleExport} />
 
-      {/* Canvas Area */}
+      {/* Canvas Area - Full Screen */}
       <div className="flex-1 relative" style={{ marginTop: '56px' }}>
-        <AnimatePresence>
-          {isLoading && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 flex items-center justify-center z-20 bg-black/70 backdrop-blur-sm"
-            >
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-12 h-12 border-2 border-[var(--accent-cyan)]/30 border-t-[var(--accent-cyan)] rounded-full animate-spin" />
-                <div className="body text-[var(--text-primary)]">Processing...</div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <Scene
           points={points}
           anchors={anchors}
@@ -321,229 +339,286 @@ export default function Studio() {
         />
       </div>
 
-      {/* Control Dock */}
-      <ControlDock
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        status={{
+      {/* Inspector Panel - Right Side */}
+      <InspectorPanel
+        stats={{
           points: meta.n_points,
           clusters: meta.n_clusters,
           sentiment: avgSentiment,
           progress,
           latency,
         }}
+      />
+
+      {/* Command Dock - Bottom */}
+      <CommandDock
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onProcess={handleProcess}
+        isLoading={isLoading}
       >
-        <div className="space-y-6">
-          {/* Compose Tab */}
-          {activeTab === 'compose' && (
-            <>
-              {/* Input Mode */}
-              <div className="space-y-3">
-                <Label className="label">Input Mode</Label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {(['text', 'speech', 'sound', 'image'] as const).map((mode) => (
+        {/* Compose Tab */}
+        {activeTab === 'compose' && (
+          <div className="space-y-4">
+            {/* Input Mode - Segmented Control */}
+            <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'rgba(255, 255, 255, 0.04)' }}>
+              {(['text', 'speech', 'sound', 'image'] as const).map((modeOption) => (
+                <motion.button
+                  key={modeOption}
+                  whileHover={{ y: -1 }}
+                  whileTap={{ y: 0 }}
+                  onClick={() => {
+                    if (isListening) {
+                      if (inputMode === 'speech') toggleSpeechListening();
+                      if (inputMode === 'sound') toggleSoundListening();
+                    }
+                    setInputMode(modeOption);
+                  }}
+                  className={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${
+                    inputMode === modeOption
+                      ? 'text-[var(--text-primary)]'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                  }`}
+                  style={{
+                    background: inputMode === modeOption ? 'rgba(71, 215, 255, 0.12)' : 'transparent',
+                  }}
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    {modeOption === 'text' && <Type size={14} />}
+                    {modeOption === 'speech' && <Mic size={14} />}
+                    {modeOption === 'sound' && <Upload size={14} />}
+                    {modeOption === 'image' && <ImageIcon size={14} />}
+                    <span className="capitalize">{modeOption}</span>
+                  </div>
+                </motion.button>
+              ))}
+            </div>
+
+            {/* Text Input */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="label text-xs">Input</Label>
+                <div className="flex items-center gap-1.5">
+                  {inputMode === 'speech' && isVoiceSupported && (
                     <motion.button
-                      key={mode}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => {
-                        if (isListening) {
-                          if (inputMode === 'speech') toggleSpeechListening();
-                          if (inputMode === 'sound') toggleSoundListening();
-                        }
-                        setInputMode(mode);
-                      }}
-                      className={`p-4 rounded-xl border transition-all ${
-                        inputMode === mode
-                          ? 'border-[var(--accent-cyan)] bg-[var(--accent-cyan)]/10'
-                          : 'border-[var(--panel-border)] bg-[var(--panel-glass)] hover:border-[var(--accent-cyan)]/50'
+                      whileHover={{ y: -1 }}
+                      whileTap={{ y: 0 }}
+                      onClick={toggleSpeechListening}
+                      className={`px-2 py-1 rounded text-xs transition-colors ${
+                        isListening
+                          ? 'text-[var(--danger)] bg-[var(--danger)]/10'
+                          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                       }`}
                     >
-                      {mode === 'text' && <Type className="w-5 h-5 mx-auto mb-2" />}
-                      {mode === 'speech' && <Mic className="w-5 h-5 mx-auto mb-2" />}
-                      {mode === 'sound' && <Upload className="w-5 h-5 mx-auto mb-2" />}
-                      {mode === 'image' && <ImageIcon className="w-5 h-5 mx-auto mb-2" />}
-                      <div className="text-xs font-medium capitalize">{mode}</div>
+                      {isListening ? <Pause size={12} /> : <Play size={12} />}
                     </motion.button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Text Input */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="label">Text Input</Label>
-                  <div className="flex items-center gap-2">
-                    {inputMode === 'speech' && isVoiceSupported && (
-                      <Button
-                        size="sm"
-                        onClick={toggleSpeechListening}
-                        className={isListening ? 'bg-[var(--danger)]/20 text-[var(--danger)]' : ''}
+                  )}
+                  {inputMode === 'sound' && (
+                    <>
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        ref={fileInputRef}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleAudioUpload(file);
+                        }}
+                        className="hidden"
+                      />
+                      <motion.button
+                        whileHover={{ y: -1 }}
+                        whileTap={{ y: 0 }}
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                       >
-                        {isListening ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
-                        {isListening ? 'Stop' : 'Start'}
-                      </Button>
-                    )}
-                    {inputMode === 'sound' && (
-                      <>
-                        <input
-                          type="file"
-                          accept="audio/*"
-                          ref={fileInputRef}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleAudioUpload(file);
-                          }}
-                          className="hidden"
-                        />
-                        <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
-                          <Upload className="w-4 h-4 mr-2" />
-                          Upload
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={toggleSoundListening}
-                          className={isListening ? 'bg-[var(--danger)]/20 text-[var(--danger)]' : ''}
-                        >
-                          {isListening ? <Pause className="w-4 h-4 mr-2" /> : <Mic className="w-4 h-4 mr-2" />}
-                          {isListening ? 'Stop' : 'Listen'}
-                        </Button>
-                      </>
-                    )}
-                    {inputMode === 'image' && (
-                      <>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          ref={imageInputRef}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleImageUpload(file);
-                          }}
-                          className="hidden"
-                        />
-                        <Button size="sm" onClick={() => imageInputRef.current?.click()} disabled={isUploading}>
-                          <ImageIcon className="w-4 h-4 mr-2" />
-                          {isUploading ? 'Processing...' : 'Upload Image'}
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {error && (
-                  <div className="p-3 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/30 text-[var(--danger)] text-sm">
-                    {error}
-                  </div>
-                )}
-
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder={
-                    inputMode === 'image'
-                      ? 'Upload an image to create embeddings directly (like voice/speech)...'
-                      : 'Type your text here... (Cmd+Enter to process)'
-                  }
-                  className="w-full h-32 bg-[var(--panel-glass)] border border-[var(--panel-border)] rounded-xl p-4 text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] transition-all"
-                />
-              </div>
-
-              {/* Mode Selector */}
-              <div className="space-y-3">
-                <Label className="label">Mode</Label>
-                <div className="flex gap-2">
-                  {(['prefix', 'token'] as const).map((m) => (
-                    <Button
-                      key={m}
-                      variant={mode === m ? 'default' : 'outline'}
-                      onClick={() => setMode(m)}
-                      className="flex-1 capitalize"
-                    >
-                      {m}
-                    </Button>
-                  ))}
+                        <Upload size={12} />
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ y: -1 }}
+                        whileTap={{ y: 0 }}
+                        onClick={toggleSoundListening}
+                        className={`px-2 py-1 rounded text-xs transition-colors ${
+                          isListening
+                            ? 'text-[var(--danger)] bg-[var(--danger)]/10'
+                            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                        }`}
+                      >
+                        {isListening ? <Pause size={12} /> : <Mic size={12} />}
+                      </motion.button>
+                    </>
+                  )}
+                  {inputMode === 'image' && (
+                    <>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        ref={imageInputRef}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImageUpload(file);
+                        }}
+                        className="hidden"
+                      />
+                      <motion.button
+                        whileHover={{ y: -1 }}
+                        whileTap={{ y: 0 }}
+                        onClick={() => imageInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                      >
+                        <ImageIcon size={12} />
+                      </motion.button>
+                    </>
+                  )}
                 </div>
               </div>
-            </>
-          )}
 
-          {/* Look Tab */}
-          {activeTab === 'look' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="show-particles" className="body">Show Particles</Label>
-                <Switch
-                  id="show-particles"
-                  checked={showParticles}
-                  onCheckedChange={setShowParticles}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="show-cluster-clouds" className="body">Show Cluster Clouds</Label>
-                <Switch
-                  id="show-cluster-clouds"
-                  checked={showClusterClouds}
-                  onCheckedChange={setShowClusterClouds}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="show-anchor-labels" className="body">Show Latest Label</Label>
-                <Switch
-                  id="show-anchor-labels"
-                  checked={showAnchorLabels}
-                  onCheckedChange={setShowAnchorLabels}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Motion Tab */}
-          {activeTab === 'motion' && (
-            <div className="space-y-6">
-              <div className="space-y-3">
-                <Label className="label">Speed: {speed.toFixed(1)}x</Label>
-                <Slider
-                  value={[speed * 10]}
-                  onValueChange={(v) => setSpeed(v[0] / 10)}
-                  min={2}
-                  max={30}
-                  step={1}
-                />
-              </div>
-
-              {points.length > 0 && (
-                <div className="space-y-3">
-                  <Label className="label">Timeline: {revealIndex} / {points.length}</Label>
-                  <Slider
-                    value={[revealIndex]}
-                    onValueChange={(v) => handleTimelineChange(v[0])}
-                    min={0}
-                    max={points.length}
-                    step={1}
-                  />
+              {error && (
+                <div className="p-2 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/30 text-[var(--danger)] text-xs">
+                  {error}
                 </div>
               )}
 
-              <div className="space-y-3">
-                <Label className="label">Camera Mode</Label>
-                <div className="flex gap-2">
-                  {(['drift', 'orbit', 'static'] as const).map((m) => (
-                    <Button
-                      key={m}
-                      variant={cameraMode === m ? 'default' : 'outline'}
-                      onClick={() => setCameraMode(m)}
-                      className="flex-1 capitalize"
-                    >
-                      {m}
-                    </Button>
-                  ))}
-                </div>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder={
+                  inputMode === 'image'
+                    ? 'Upload an image to create embeddings...'
+                    : 'Type your text here...'
+                }
+                className="w-full h-24 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.12)] rounded-lg p-3 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-cyan)] transition-all resize-none"
+              />
+            </div>
+
+            {/* Mode Toggle - Inline */}
+            <div className="flex items-center gap-2">
+              <Label className="label text-xs">Mode:</Label>
+              <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'rgba(255, 255, 255, 0.04)' }}>
+                {(['prefix', 'token'] as const).map((m) => (
+                  <motion.button
+                    key={m}
+                    whileHover={{ y: -1 }}
+                    whileTap={{ y: 0 }}
+                    onClick={() => setMode(m)}
+                    className={`px-3 py-1 rounded text-xs font-medium transition-all ${
+                      mode === m
+                        ? 'text-[var(--text-primary)]'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                    }`}
+                    style={{
+                      background: mode === m ? 'rgba(71, 215, 255, 0.12)' : 'transparent',
+                    }}
+                  >
+                    {m}
+                  </motion.button>
+                ))}
               </div>
             </div>
-          )}
-        </div>
-      </ControlDock>
+          </div>
+        )}
+
+        {/* Look Tab */}
+        {activeTab === 'look' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="show-particles" className="body text-sm">Particles</Label>
+              <Switch
+                id="show-particles"
+                checked={showParticles}
+                onCheckedChange={setShowParticles}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="show-cluster-clouds" className="body text-sm">Cluster Clouds</Label>
+              <Switch
+                id="show-cluster-clouds"
+                checked={showClusterClouds}
+                onCheckedChange={setShowClusterClouds}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="show-anchor-labels" className="body text-sm">Latest Label</Label>
+              <Switch
+                id="show-anchor-labels"
+                checked={showAnchorLabels}
+                onCheckedChange={setShowAnchorLabels}
+              />
+            </div>
+            {/* Style sliders (stub for future) */}
+            <div className="pt-2 border-t border-[rgba(255,255,255,0.08)]">
+              <div className="space-y-2">
+                <Label className="label text-xs">Trail Thickness</Label>
+                <Slider
+                  value={[50]}
+                  disabled
+                  className="opacity-50"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Motion Tab */}
+        {activeTab === 'motion' && (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="label text-xs">Speed</Label>
+                <span className="text-xs text-[var(--text-muted)]">{speed.toFixed(1)}x</span>
+              </div>
+              <Slider
+                value={[speed * 10]}
+                onValueChange={(v) => setSpeed(v[0] / 10)}
+                min={2}
+                max={30}
+                step={1}
+              />
+            </div>
+
+            {points.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="label text-xs">Timeline</Label>
+                  <span className="text-xs text-[var(--text-muted)]">{revealIndex} / {points.length}</span>
+                </div>
+                <Slider
+                  value={[revealIndex]}
+                  onValueChange={(v) => handleTimelineChange(v[0])}
+                  min={0}
+                  max={points.length}
+                  step={1}
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label className="label text-xs">Camera</Label>
+              <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'rgba(255, 255, 255, 0.04)' }}>
+                {(['drift', 'orbit', 'static'] as const).map((m) => (
+                  <motion.button
+                    key={m}
+                    whileHover={{ y: -1 }}
+                    whileTap={{ y: 0 }}
+                    onClick={() => setCameraMode(m)}
+                    className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition-all capitalize ${
+                      cameraMode === m
+                        ? 'text-[var(--text-primary)]'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                    }`}
+                    style={{
+                      background: cameraMode === m ? 'rgba(71, 215, 255, 0.12)' : 'transparent',
+                    }}
+                  >
+                    {m}
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </CommandDock>
     </div>
   );
 }
