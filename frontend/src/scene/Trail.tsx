@@ -356,46 +356,29 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
   
   return (
     <group ref={groupRef}>
-      {/* Simple line - EXACT same as MiniDemo working version - thin lines */}
+      {/* Thin glowing trail */}
       {lineGeometry && (
-        <line geometry={lineGeometry}>
-          <lineBasicMaterial
-            color="#00f5ff"
-            linewidth={2}
-          />
-        </line>
-      )}
-      
-      {/* Word labels along the trail segments - showing what each part represents */}
-      {labelPositions.length > 0 && (
         <>
-          {labelPositions.map((label, idx) => {
-            const point = points[label.index];
-            if (!point || !label.position) return null;
-            
-            // Safety check for position coordinates
-            if (typeof label.position.x !== 'number' || typeof label.position.y !== 'number' || typeof label.position.z !== 'number') {
-              return null;
-            }
-            
-            return (
-              <Text
-                key={`trail-label-${idx}-${label.index}`}
-                position={[label.position.x, label.position.y, label.position.z]}
-                fontSize={0.28}
-                color="#ffffff"
-                anchorX="center"
-                anchorY="middle"
-                outlineWidth={0.1}
-                outlineColor="#000000"
-                maxWidth={4.0}
-              >
-                {label.word}
-              </Text>
-            );
-          })}
+          {/* Glow pass (larger, more transparent) */}
+          <line geometry={lineGeometry}>
+            <lineBasicMaterial
+              color="#47D7FF"
+              linewidth={4}
+              transparent
+              opacity={0.3}
+            />
+          </line>
+          {/* Main trail (thinner) */}
+          <line geometry={lineGeometry}>
+            <lineBasicMaterial
+              color="#47D7FF"
+              linewidth={1.5}
+            />
+          </line>
         </>
       )}
+      
+      {/* Word labels - hover only (not always visible) */}
         
         {/* Glowing points with word labels */}
         {points.slice(0, visiblePoints).map((point, idx) => {
@@ -431,21 +414,21 @@ export default function Trail({ points, animationProgress, revealIndex, speed, s
                 />
               </mesh>
               
-              {/* Word label on every point - MAKE IT POP! */}
-              <Text
-                position={[point.x, point.y + 0.45, point.z]}
-                fontSize={0.28}
-                color="#ffffff"
-                anchorX="center"
-                anchorY="middle"
-                outlineWidth={0.08}
-                outlineColor="#000000"
-                maxWidth={4.0}
-                strokeWidth={0.02}
-                strokeColor="#000000"
-              >
-                {truncated}
-              </Text>
+              {/* Word label - hover only */}
+              {(isHovered || isLatest) && (
+                <Text
+                  position={[point.x, point.y + 0.45, point.z]}
+                  fontSize={0.2}
+                  color="#ffffff"
+                  anchorX="center"
+                  anchorY="middle"
+                  outlineWidth={0.05}
+                  outlineColor="#000000"
+                  maxWidth={3.0}
+                >
+                  {truncated.length > 18 ? truncated.substring(0, 18) + '...' : truncated}
+                </Text>
+              )}
             </group>
           );
         })}
