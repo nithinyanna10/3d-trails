@@ -45,9 +45,4 @@ pip install -r requirements.txt
 - BMP
 - TIFF
 
-## Notes
-
-- OCR accuracy depends on image quality and text clarity
-- For best results, use high-contrast images with clear, readable text
-- The extracted text is automatically processed and embedded to create the 3D trail
 
