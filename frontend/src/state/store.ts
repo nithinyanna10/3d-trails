@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Point, Anchor } from '../api';
+import { Point, Anchor, ModelInfo } from '../api';
 
 interface AppState {
   // Text & Mode
@@ -7,6 +7,12 @@ interface AppState {
   mode: 'prefix' | 'token' | 'sentences';
   setText: (text: string) => void;
   setMode: (mode: 'prefix' | 'token' | 'sentences') => void;
+  
+  // Model Management
+  activeModel: string | null;
+  availableModels: ModelInfo[];
+  setActiveModel: (modelName: string) => void;
+  setAvailableModels: (models: ModelInfo[]) => void;
   
   // Points & Data
   points: Point[];
@@ -66,10 +72,14 @@ export const useStore = create<AppState>((set) => ({
   preset: null,
   isLoading: false,
   latency: 0,
+  activeModel: null,
+  availableModels: [],
   
   // Setters
   setText: (text) => set({ text }),
   setMode: (mode) => set({ mode }),
+  setActiveModel: (modelName) => set({ activeModel: modelName }),
+  setAvailableModels: (models) => set({ availableModels: models }),
   setPoints: (points) => set({ points, revealIndex: Math.max(2, points.length) }),
   setAnchors: (anchors) => set({ anchors }),
   setMeta: (meta) => set({ meta }),
