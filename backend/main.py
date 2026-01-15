@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Dict
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.decomposition import PCA
@@ -13,6 +13,9 @@ import warnings
 import io
 from PIL import Image
 import torch
+import json
+import os
+from pathlib import Path
 
 # Try to import vision model for image embeddings
 try:
@@ -42,17 +45,83 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+# Model registry and management
+MODELS_DIR = Path("models")
+MODELS_DIR.mkdir(exist_ok=True)
+MODELS_CONFIG_FILE = MODELS_DIR / "models_config.json"
+
+# Default models
+DEFAULT_MODELS = {
+    "all-MiniLM-L6-v2": {
+        "name": "all-MiniLM-L6-v2",
+        "type": "sentence-transformers",
+        "description": "Default fast and efficient model",
+        "is_default": True,
+        "is_custom": False
+    },
+    "all-mpnet-base-v2": {
+        "name": "all-mpnet-base-v2",
+        "type": "sentence-transformers",
+        "description": "Higher quality, slower model",
+        "is_default": True,
+        "is_custom": False
+    }
+}
+
 # Load models (lazy loading)
-model = None
+models_registry: Dict[str, SentenceTransformer] = {}
+active_model_name = "all-MiniLM-L6-v2"
 sentiment_analyzer = None
 vision_model = None
 vision_processor = None
 
-def get_model():
-    global model
-    if model is None:
-        model = SentenceTransformer('all-MiniLM-L6-v2')
-    return model
+def load_models_config():
+    """Load models configuration from file"""
+    if MODELS_CONFIG_FILE.exists():
+        try:
+            with open(MODELS_CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading models config: {e}")
+            return DEFAULT_MODELS.copy()
+    return DEFAULT_MODELS.copy()
+
+def save_models_config(config: Dict):
+    """Save models configuration to file"""
+    try:
+        with open(MODELS_CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        print(f"Error saving models config: {e}")
+
+# Initialize models config
+models_config = load_models_config()
+
+def get_model(model_name: Optional[str] = None):
+    """Get embedding model, loading it if necessary"""
+    global models_registry, active_model_name
+    
+    # Use provided model_name or fall back to active
+    target_model_name = model_name or active_model_name
+    
+    # Check if model is already loaded
+    if target_model_name in models_registry:
+        return models_registry[target_model_name]
+    
+    # Load model
+    try:
+        print(f"Loading model: {target_model_name}")
+        model = SentenceTransformer(target_model_name)
+        models_registry[target_model_name] = model
+        print(f"✓ Model {target_model_name} loaded successfully")
+        return model
+    except Exception as e:
+        print(f"Error loading model {target_model_name}: {e}")
+        # Fallback to default
+        if target_model_name != "all-MiniLM-L6-v2":
+            print("Falling back to default model: all-MiniLM-L6-v2")
+            return get_model("all-MiniLM-L6-v2")
+        raise
 
 def get_sentiment_analyzer():
     global sentiment_analyzer
@@ -79,6 +148,7 @@ def get_vision_model():
 class EmbedRequest(BaseModel):
     text: str
     mode: Literal["prefix", "token"] = "prefix"
+    model: Optional[str] = None  # Optional model name, uses active model if not provided
 
 class Point(BaseModel):
     x: float
@@ -289,8 +359,8 @@ async def embed_text(request: EmbedRequest):
             meta={"n_points": 0, "n_clusters": 0}
         )
     
-    # Compute embeddings
-    model = get_model()
+    # Compute embeddings using specified or active model
+    model = get_model(request.model)
     embeddings = model.encode(fragments, show_progress_bar=False)
     embeddings = np.array(embeddings)
     
@@ -529,4 +599,166 @@ async def check_vision():
         "model_loaded": vision_model is not None,
         "processor_loaded": vision_processor is not None
     }
+
+# Model Management Endpoints
+
+class ModelInfo(BaseModel):
+    name: str
+    type: str
+    description: str
+    is_default: bool
+    is_custom: bool
+
+class AddModelRequest(BaseModel):
+    name: str  # HuggingFace model name or identifier
+    description: Optional[str] = None
+
+class SetActiveModelRequest(BaseModel):
+    model_name: str
+
+@app.get("/models", response_model=List[ModelInfo])
+async def list_models():
+    """List all available embedding models"""
+    global models_config
+    models_config = load_models_config()
+    
+    models_list = []
+    for model_name, config in models_config.items():
+        models_list.append(ModelInfo(
+            name=model_name,
+            type=config.get("type", "sentence-transformers"),
+            description=config.get("description", ""),
+            is_default=config.get("is_default", False),
+            is_custom=config.get("is_custom", False)
+        ))
+    
+    return models_list
+
+@app.get("/models/active")
+async def get_active_model():
+    """Get the currently active model"""
+    global active_model_name, models_config
+    models_config = load_models_config()
+    
+    if active_model_name in models_config:
+        config = models_config[active_model_name]
+        return {
+            "name": active_model_name,
+            "type": config.get("type", "sentence-transformers"),
+            "description": config.get("description", ""),
+            "is_default": config.get("is_default", False),
+            "is_custom": config.get("is_custom", False)
+        }
+    return {"name": active_model_name, "error": "Model not found in config"}
+
+@app.post("/models/add")
+async def add_model(request: AddModelRequest):
+    """Add a new custom embedding model"""
+    global models_config
+    
+    model_name = request.name.strip()
+    if not model_name:
+        return JSONResponse(
+            {"error": "Model name cannot be empty"},
+            status_code=400
+        )
+    
+    # Try to load the model to verify it exists
+    try:
+        print(f"Verifying model: {model_name}")
+        test_model = SentenceTransformer(model_name)
+        # Get model info
+        model_dim = test_model.get_sentence_embedding_dimension()
+        print(f"✓ Model verified: {model_name} (dimension: {model_dim})")
+        
+        # Add to config
+        models_config[model_name] = {
+            "name": model_name,
+            "type": "sentence-transformers",
+            "description": request.description or f"Custom model: {model_name}",
+            "is_default": False,
+            "is_custom": True
+        }
+        
+        save_models_config(models_config)
+        
+        return {
+            "success": True,
+            "message": f"Model '{model_name}' added successfully",
+            "model": {
+                "name": model_name,
+                "dimension": model_dim,
+                "description": models_config[model_name]["description"]
+            }
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            {"error": f"Failed to load model '{model_name}': {str(e)}"},
+            status_code=400
+        )
+
+@app.delete("/models/{model_name}")
+async def remove_model(model_name: str):
+    """Remove a custom model (cannot remove default models)"""
+    global models_config, active_model_name
+    
+    if model_name not in models_config:
+        return JSONResponse(
+            {"error": f"Model '{model_name}' not found"},
+            status_code=404
+        )
+    
+    config = models_config[model_name]
+    if config.get("is_default", False):
+        return JSONResponse(
+            {"error": "Cannot remove default models"},
+            status_code=400
+        )
+    
+    # Unload from memory if loaded
+    if model_name in models_registry:
+        del models_registry[model_name]
+    
+    # Remove from config
+    del models_config[model_name]
+    save_models_config(models_config)
+    
+    # If it was the active model, switch to default
+    if active_model_name == model_name:
+        active_model_name = "all-MiniLM-L6-v2"
+    
+    return {
+        "success": True,
+        "message": f"Model '{model_name}' removed successfully"
+    }
+
+@app.post("/models/set-active")
+async def set_active_model(request: SetActiveModelRequest):
+    """Set the active embedding model"""
+    global active_model_name, models_config
+    
+    model_name = request.model_name.strip()
+    
+    if model_name not in models_config:
+        return JSONResponse(
+            {"error": f"Model '{model_name}' not found. Add it first using /models/add"},
+            status_code=404
+        )
+    
+    # Verify model can be loaded
+    try:
+        get_model(model_name)
+        active_model_name = model_name
+        return {
+            "success": True,
+            "message": f"Active model set to '{model_name}'",
+            "active_model": model_name
+        }
+    except Exception as e:
+        return JSONResponse(
+            {"error": f"Failed to load model '{model_name}': {str(e)}"},
+            status_code=400
+        )
 
