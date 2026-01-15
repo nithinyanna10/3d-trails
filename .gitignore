@@ -49,6 +49,10 @@ Thumbs.db
 *.temp
 .cache/
 
+# Model storage
+backend/models/
+backend/models_config.json
+
 # Audio files (test files)
 *.mp3
 *.wav
