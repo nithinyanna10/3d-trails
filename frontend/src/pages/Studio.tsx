@@ -33,6 +33,7 @@ export default function Studio() {
     isLoading,
     animationProgress,
     latency,
+    activeModel,
     setText,
     setMode,
     setPoints,
@@ -154,7 +155,7 @@ export default function Studio() {
         setIsLoading(true);
         const startTime = performance.now();
         try {
-          const response = await embedText(textToEmbed, modeToUse);
+          const response = await embedText(textToEmbed, modeToUse, activeModel || undefined);
           const endTime = performance.now();
           setLatency(Math.round(endTime - startTime));
           
@@ -171,7 +172,7 @@ export default function Studio() {
         }
       }, 400);
     },
-    [setPoints, setAnchors, setMeta, setRevealIndex, setIsLoading, setAnimationProgress, setLatency]
+    [setPoints, setAnchors, setMeta, setRevealIndex, setIsLoading, setAnimationProgress, setLatency, activeModel]
   );
 
   // Handle audio upload
