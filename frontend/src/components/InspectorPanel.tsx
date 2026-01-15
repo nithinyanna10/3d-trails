@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, X } from 'lucide-react';
+import ModelManager from './ModelManager';
+import { useStore } from '../state/store';
 
 interface InspectorPanelProps {
   stats: {
@@ -14,6 +16,7 @@ interface InspectorPanelProps {
 
 export default function InspectorPanel({ stats }: InspectorPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { activeModel } = useStore();
 
   return (
     <motion.div
@@ -111,15 +114,27 @@ export default function InspectorPanel({ stats }: InspectorPanelProps) {
                   </div>
                 </div>
               )}
+
+              {/* Active Model */}
+              {activeModel && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="body text-sm text-[var(--text-secondary)]">Model</span>
+                    <span className="px-2 py-0.5 rounded text-xs font-medium text-[var(--accent-cyan)] bg-[rgba(71,215,255,0.1)] max-w-[200px] truncate" title={activeModel}>
+                      {activeModel}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="mt-8 pt-6 border-t border-[rgba(255,255,255,0.08)]">
               <h3 className="label text-xs mb-4 text-[var(--text-muted)] uppercase tracking-wider">
                 Advanced
               </h3>
-              <p className="body text-xs text-[var(--text-muted)]">
-                Additional controls coming soon
-              </p>
+              <div className="space-y-3">
+                <ModelManager />
+              </div>
             </div>
           </motion.div>
         )}
