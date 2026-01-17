@@ -167,10 +167,3 @@ The `/embed` endpoint now accepts an optional `model` parameter:
 ```
 
 If not provided, uses the currently active model.
-
-## Notes
-
-- Model loading can take time on first use (downloading from HuggingFace)
-- Larger models use more memory
-- Different models may produce different 3D visualizations for the same text
-- The active model is displayed in the Inspector Panel stats section
